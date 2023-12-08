@@ -443,6 +443,10 @@ bool HttpMessage::IsKeepAlive() {
     return keepalive;
 }
 
+bool HttpMessage::IsUpgrade() {
+    auto iter = headers.find("upgrade");
+    return iter != headers.end();
+}
 
 // headers
 void HttpMessage::SetHeader(const char* key, const std::string& value) {
@@ -485,7 +489,23 @@ void HttpMessage::DumpHeaders(std::string& str) {
             // %s: %s\r\n
             str += header.first;
             str += ": ";
-            str += header.second;
+            // if the value has \r\n, translate to \\r\\n
+            if (header.second.find("\r") != std::string::npos ||
+                header.second.find("\n") != std::string::npos) {
+                std::string newStr = "";
+                for (size_t i = 0; i < header.second.size(); ++i) {
+                    if (header.second[i] == '\r') {
+                        newStr += "\\r";
+                    } else if (header.second[i] == '\n') {
+                        newStr += "\\n";
+                    } else {
+                        newStr += header.second[i];
+                    }
+                }
+                str += newStr;
+            } else {
+                str += header.second;
+            }
             str += "\r\n";
         }
     }
@@ -619,6 +639,7 @@ void HttpRequest::Init() {
     retry_delay = DEFAULT_HTTP_FAIL_RETRY_DELAY;
     redirect = 1;
     proxy = 0;
+    cancel = 0;
 }
 
 void HttpRequest::Reset() {
