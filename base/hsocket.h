@@ -32,7 +32,8 @@ HV_EXPORT const char* socket_strerror(int err);
 
 #ifdef OS_WIN
 
-typedef int socklen_t;
+typedef SOCKET  hsocket_t;
+typedef int     socklen_t;
 
 void WSAInit();
 void WSADeinit();
@@ -63,13 +64,23 @@ HV_INLINE int nonblocking(int sockfd) {
 
 #else
 
-#define blocking(s)     fcntl(s, F_SETFL, fcntl(s, F_GETFL) & ~O_NONBLOCK)
-#define nonblocking(s)  fcntl(s, F_SETFL, fcntl(s, F_GETFL) |  O_NONBLOCK)
+typedef int     hsocket_t;
 
 #ifndef SOCKET
 #define SOCKET int
 #endif
+
+#ifndef INVALID_SOCKET
 #define INVALID_SOCKET  -1
+#endif
+
+HV_INLINE int blocking(int s) {
+    return fcntl(s, F_SETFL, fcntl(s, F_GETFL) & ~O_NONBLOCK);
+}
+
+HV_INLINE int nonblocking(int s) {
+    return fcntl(s, F_SETFL, fcntl(s, F_GETFL) |  O_NONBLOCK);
+}
 
 HV_INLINE int closesocket(int sockfd) {
     return close(sockfd);
