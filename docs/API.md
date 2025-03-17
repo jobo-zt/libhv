@@ -269,6 +269,7 @@
 - main_ctx_init
 - parse_opt
 - parse_opt_long
+- dump_opt_long
 - get_arg
 - get_env
 - setproctitle
@@ -470,6 +471,7 @@
 - hio_setup_ssl_upstream
 - hio_setup_udp_upstream
 - hio_create_socket
+- hio_create_pipe
 - hio_context
 - hio_set_context
 - htimer_add
@@ -478,6 +480,8 @@
 - htimer_reset
 - hidle_add
 - hidle_del
+- hsignal_add
+- hsignal_del
 
 ### nlog.h
 - network_logger

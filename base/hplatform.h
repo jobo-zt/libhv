@@ -41,6 +41,7 @@
     #undef  OS_UNIX
     #define OS_WIN
 #else
+    #undef  OS_WIN
     #define OS_UNIX
 #endif
 
@@ -59,6 +60,8 @@
     #define ARCH_MIPS64
 #elif defined(__mips__)
     #define ARCH_MIPS
+#elif defined(__riscv)
+    #define ARCH_RISCV
 #else
     #warning "Untested hardware architecture!"
 #endif
@@ -140,8 +143,18 @@
 #warning "Untested compiler!"
 #endif
 
+#ifndef __GNUC_PREREQ
+#define __GNUC_PREREQ(a, b)	0
+#endif
+
 // headers
 #ifdef OS_WIN
+    #ifndef _WIN32_WINNT
+    #define _WIN32_WINNT 0x0600
+    #elif _WIN32_WINNT < 0x0600
+    #undef _WIN32_WINNT
+    #define _WIN32_WINNT 0x0600
+    #endif
     #ifndef WIN32_LEAN_AND_MEAN
     #define WIN32_LEAN_AND_MEAN
     #endif

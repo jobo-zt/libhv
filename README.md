@@ -28,7 +28,7 @@ but simpler api and richer protocols.
 ## ✨ Features
 
 - Cross-platform (Linux, Windows, macOS, Android, iOS, BSD, Solaris)
-- High-performance EventLoop (IO, timer, idle, custom)
+- High-performance EventLoop (IO, timer, idle, custom, signal)
 - TCP/UDP client/server/proxy
 - TCP supports heartbeat, reconnect, upstream, MultiThread-safe write and close, etc.
 - Built-in common unpacking modes (FixedLength, Delimiter, LengthField)
@@ -57,6 +57,11 @@ mkdir build
 cd build
 cmake ..
 cmake --build .
+```
+
+or bazel:
+```shell
+bazel build libhv
 ```
 
 or vcpkg:
@@ -337,6 +342,7 @@ int main(int argc, char** argv) {
 ### c version
 - [examples/hloop_test.c](examples/hloop_test.c)
 - [examples/htimer_test.c](examples/htimer_test.c)
+- [examples/pipe_test.c](examples/pipe_test.c)
 - [examples/tcp_echo_server.c](examples/tcp_echo_server.c)
 - [examples/tcp_chat_server.c](examples/tcp_chat_server.c)
 - [examples/tcp_proxy_server.c](examples/tcp_proxy_server.c)
@@ -375,6 +381,7 @@ int main(int argc, char** argv) {
 - [examples/curl](examples/curl.cpp)
 - [examples/wget](examples/wget.cpp)
 - [examples/consul](examples/consul)
+- [examples/kcptun](examples/kcptun)
 
 ## 🥇 Benchmark
 ### `pingpong echo-servers`

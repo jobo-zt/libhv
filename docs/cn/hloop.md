@@ -43,7 +43,7 @@ struct hevent_s {
 // 获取事件用户数据
 #define hevent_userdata(ev)     (((hevent_t*)(ev))->userdata)
 
-// hidle_t、htimer_t、hio_t皆是继承自hevent_t，继承上面的数据成员和函数方法
+// hio_t、htimer_t、hsignal_t、hidle_t皆是继承自hevent_t，继承上面的数据成员和函数方法
 
 // 新建事件循环
 hloop_t* hloop_new(int flags DEFAULT(HLOOP_FLAG_AUTO_FREE));
@@ -106,6 +106,12 @@ void* hloop_userdata(hloop_t* loop);
 
 // 投递事件
 void hloop_post_event(hloop_t* loop, hevent_t* ev);
+
+// 添加信号处理
+hsignal_t* hsignal_add(hloop_t* loop, hsignal_cb cb, int signo);
+
+// 删除信号处理
+void       hsignal_del(hsignal_t* sig);
 
 // 添加空闲事件
 hidle_t* hidle_add(hloop_t* loop, hidle_cb cb, uint32_t repeat DEFAULT(INFINITE));
@@ -415,6 +421,10 @@ hio_t* hloop_create_udp_server (hloop_t* loop, const char* host, int port);
 // @udp_server: hio_create_socket(loop, host, port, HIO_TYPE_UDP, HIO_CLIENT_SIDE)
 // 创建UDP客户端，示例代码见 examples/nc.c
 hio_t* hloop_create_udp_client (hloop_t* loop, const char* host, int port);
+
+//-----------------pipe---------------------------------------------
+// 创建pipe，示例代码见 examples/pipe_test.c
+int hio_create_pipe(hloop_t* loop, hio_t* pipeio[2]);
 
 //-----------------转发---------------------------------------------
 // hio_read(io)

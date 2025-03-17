@@ -202,4 +202,27 @@ std::string replaceAll(const std::string& str, const std::string& find, const st
     return res;
 }
 
+void NetAddr::from_string(const std::string& ipport) {
+    auto pos = ipport.find_last_of(':');
+    if (pos != std::string::npos) {
+        ip = trim_pairs(ipport.substr(0, pos), "[]");
+        std::string strPort = ipport.substr(pos + 1);
+        port = atoi(strPort.c_str());
+    } else if (ipport.find('.') != std::string::npos) {
+        ip = ipport;
+        port = 0;
+    } else {
+        port = atoi(ipport.c_str());
+    }
+}
+
+std::string NetAddr::to_string() {
+    return NetAddr::to_string(ip.c_str(), port);
+}
+
+std::string NetAddr::to_string(const char* ip, int port) {
+    const char* fmt = strchr(ip, ':') ? "[%s]:%d" : "%s:%d";
+    return hv::asprintf(fmt, ip, port);
+}
+
 } // end namespace hv

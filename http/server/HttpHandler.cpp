@@ -153,10 +153,11 @@ void HttpHandler::Close() {
 }
 
 bool HttpHandler::SwitchHTTP2() {
-    parser.reset(HttpParser::New(HTTP_SERVER, ::HTTP_V2));
-    if (parser == NULL) {
+    HttpParser* http2_parser = HttpParser::New(HTTP_SERVER, ::HTTP_V2);
+    if (http2_parser == NULL) {
         return false;
     }
+    parser.reset(http2_parser);
     protocol = HTTP_V2;
     resp->http_major = req->http_major = 2;
     resp->http_minor = req->http_minor = 0;
@@ -418,11 +419,7 @@ void HttpHandler::handleExpect100() {
 void HttpHandler::addResponseHeaders() {
     HttpResponse* pResp = resp.get();
     // Server:
-    static char s_Server[64] = {'\0'};
-    if (s_Server[0] == '\0') {
-        snprintf(s_Server, sizeof(s_Server), "httpd/%s", hv_version());
-    }
-    pResp->headers["Server"] = s_Server;
+    pResp->headers["Server"] = "libhv/" HV_VERSION_STRING;
 
     // Connection:
     pResp->headers["Connection"] = keepalive ? "keep-alive" : "close";
@@ -1098,7 +1095,7 @@ int HttpHandler::sendProxyRequest() {
     req->headers["Connection"] = keepalive ? "keep-alive" : "close";
     req->headers["X-Real-IP"] = ip;
     // NOTE: send head + received body
-    std::string msg = req->Dump(true, true);
+    std::string msg = req->Dump(true, false) + req->body;
     // printf("%s\n", msg.c_str());
     req->Reset();
 

@@ -52,7 +52,7 @@
 ## ✨ 特性
 
 - 跨平台（Linux, Windows, macOS, Android, iOS, BSD, Solaris）
-- 高性能事件循环（网络IO事件、定时器事件、空闲事件、自定义事件）
+- 高性能事件循环（网络IO事件、定时器事件、空闲事件、自定义事件、信号）
 - TCP/UDP服务端/客户端/代理
 - TCP支持心跳、重连、转发、多线程安全write和close等特性
 - 内置常见的拆包模式（固定包长、分界符、头部长度字段）
@@ -85,12 +85,17 @@ cmake ..
 cmake --build .
 ```
 
-3、通过vcpkg:
+3、通过bazel:
+```shell
+bazel build libhv
+```
+
+4、通过vcpkg:
 ```shell
 vcpkg install libhv
 ```
 
-4、通过xmake:
+5、通过xmake:
 ```shell
 xrepo install libhv
 ```
@@ -397,6 +402,7 @@ int main(int argc, char** argv) {
 ### c版本
 - 事件循环:     [examples/hloop_test.c](examples/hloop_test.c)
 - 定时器:       [examples/htimer_test.c](examples/htimer_test.c)
+- pipe示例:     [examples/pipe_test.c](examples/pipe_test.c)
 - TCP回显服务:  [examples/tcp_echo_server.c](examples/tcp_echo_server.c)
 - TCP聊天服务:  [examples/tcp_chat_server.c](examples/tcp_chat_server.c)
 - TCP代理服务:  [examples/tcp_proxy_server.c](examples/tcp_proxy_server.c)
@@ -435,6 +441,7 @@ int main(int argc, char** argv) {
 - URL请求工具:  [examples/curl](examples/curl.cpp)
 - 文件下载工具: [examples/wget](examples/wget.cpp)
 - 服务注册与发现: [examples/consul](examples/consul)
+- kcptun隧道: [examples/kcptun](examples/kcptun)
 
 ## 🥇 性能测试
 

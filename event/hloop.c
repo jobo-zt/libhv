@@ -187,8 +187,10 @@ process_timers:
     //         blocktime, nios, loop->nios, ntimers, loop->ntimers, nidles, loop->nidles,
     //         loop->nactives, npendings, ncbs);
     return ncbs;
+    (void)nios;
 }
 
+#ifdef DEBUG
 static void hloop_stat_timer_cb(htimer_t* timer) {
     hloop_t* loop = timer->loop;
     // hlog_set_level(LOG_LEVEL_DEBUG);
@@ -198,6 +200,7 @@ static void hloop_stat_timer_cb(htimer_t* timer) {
         (unsigned long long)loop->loop_cnt,
         loop->nactives, loop->nios, loop->ntimers, loop->nidles);
 }
+#endif
 
 static void eventfd_read_cb(hio_t* io, void* buf, int readbytes) {
     hloop_t* loop = io->loop;
@@ -394,6 +397,14 @@ static void hloop_cleanup(hloop_t* loop) {
     }
     heap_init(&loop->realtimers, NULL);
 
+    // signals
+    printd("cleanup signals...\n");
+    for (int i = 0; i < loop->signals.maxsize; ++i) {
+        hsignal_t* sig = loop->signals.ptr[i];
+        HV_FREE(sig);
+    }
+    signal_array_cleanup(&loop->signals);
+
     // readbuf
     if (loop->readbuf.base && loop->readbuf.len) {
         HV_FREE(loop->readbuf.base);
@@ -417,15 +428,19 @@ hloop_t* hloop_new(int flags) {
     HV_ALLOC_SIZEOF(loop);
     hloop_init(loop);
     loop->flags |= flags;
+    hlogd("hloop_new tid=%ld", loop->tid);
     return loop;
 }
 
 void hloop_free(hloop_t** pp) {
-    if (pp && *pp) {
-        hloop_cleanup(*pp);
-        HV_FREE(*pp);
-        *pp = NULL;
-    }
+    if (pp == NULL || *pp == NULL) return;
+    hloop_t* loop = *pp;
+    if (loop->status == HLOOP_STATUS_DESTROY) return;
+    loop->status = HLOOP_STATUS_DESTROY;
+    hlogd("hloop_free tid=%ld", hv_gettid());
+    hloop_cleanup(loop);
+    HV_FREE(loop);
+    *pp = NULL;
 }
 
 // while (loop->status) { hloop_process_events(loop); }
@@ -436,6 +451,7 @@ int hloop_run(hloop_t* loop) {
     loop->status = HLOOP_STATUS_RUNNING;
     loop->pid = hv_getpid();
     loop->tid = hv_gettid();
+    hlogd("hloop_run tid=%ld", loop->tid);
 
     if (loop->intern_nevents == 0) {
         hmutex_lock(&loop->custom_events_mutex);
@@ -471,8 +487,7 @@ int hloop_run(hloop_t* loop) {
     loop->end_hrtime = gethrtime_us();
 
     if (loop->flags & HLOOP_FLAG_AUTO_FREE) {
-        hloop_cleanup(loop);
-        HV_FREE(loop);
+        hloop_free(&loop);
     }
     return 0;
 }
@@ -485,6 +500,9 @@ int hloop_wakeup(hloop_t* loop) {
 }
 
 int hloop_stop(hloop_t* loop) {
+    if (loop == NULL) return -1;
+    if (loop->status == HLOOP_STATUS_STOP) return -2;
+    hlogd("hloop_stop tid=%ld", hv_gettid());
     if (hv_gettid() != loop->tid) {
         hloop_wakeup(loop);
     }
@@ -578,6 +596,55 @@ void  hloop_set_userdata(hloop_t* loop, void* userdata) {
 
 void* hloop_userdata(hloop_t* loop) {
     return loop->userdata;
+}
+
+static hloop_t* s_signal_loop = NULL;
+static void signal_handler(int signo) {
+    if (!s_signal_loop) return;
+    if (signo >= s_signal_loop->signals.maxsize) return;
+    hsignal_t* sig = s_signal_loop->signals.ptr[signo];
+    if (!sig) return;
+    hloop_post_event(s_signal_loop, sig);
+}
+
+hsignal_t* hsignal_add(hloop_t* loop, hsignal_cb cb, int signo) {
+    int max_signo = 64;
+#ifdef _NSIG
+    max_signo = _NSIG;
+#endif
+    if (signo <= 0 || signo >= max_signo) {
+        hloge("signo %d over %d!", signo, max_signo);
+        return NULL;
+    }
+    if (loop->signals.maxsize == 0) {
+        signal_array_init(&loop->signals, max_signo);
+    }
+    hsignal_t* sig = loop->signals.ptr[signo];
+    if (sig == NULL) {
+        HV_ALLOC_SIZEOF(sig);
+        sig->loop = loop;
+        sig->event_type = HEVENT_TYPE_SIGNAL;
+        // NOTE: use event_id as signo
+        sig->event_id = signo;
+        sig->cb = cb;
+        sig->priority = HEVENT_HIGHEST_PRIORITY;
+        loop->signals.ptr[signo] = sig;
+        loop->nsignals++;
+    }
+    EVENT_ACTIVE(sig);
+    s_signal_loop = loop;
+    signal(signo, signal_handler);
+    return sig;
+}
+
+void hsignal_del(hsignal_t* sig) {
+    if (!sig->active) return;
+    hloop_t* loop = sig->loop;
+    int signo = (int)sig->event_id;
+    if (signo >= loop->signals.maxsize) return;
+    loop->signals.ptr[signo] = NULL;
+    loop->nsignals--;
+    EVENT_DEL(sig);
 }
 
 hidle_t* hidle_add(hloop_t* loop, hidle_cb cb, uint32_t repeat) {
@@ -1017,4 +1084,26 @@ hio_t* hloop_create_udp_server(hloop_t* loop, const char* host, int port) {
 
 hio_t* hloop_create_udp_client(hloop_t* loop, const char* host, int port) {
     return hio_create_socket(loop, host, port, HIO_TYPE_UDP, HIO_CLIENT_SIDE);
+}
+
+int hio_create_pipe(hloop_t* loop, hio_t* pipeio[2]) {
+    int pipefd[2];
+    hio_type_e type = HIO_TYPE_PIPE;
+#if defined(OS_UNIX) && HAVE_PIPE
+    if (pipe(pipefd) != 0) {
+        hloge("pipe create failed!");
+        return -1;
+    }
+#else
+    if (Socketpair(AF_INET, SOCK_STREAM, 0, pipefd) != 0) {
+        hloge("socketpair create failed!");
+        return -1;
+    }
+    type = HIO_TYPE_TCP;
+#endif
+    pipeio[0] = hio_get(loop, pipefd[0]);
+    pipeio[1] = hio_get(loop, pipefd[1]);
+    pipeio[0]->io_type = type;
+    pipeio[1]->io_type = type;
+    return 0;
 }

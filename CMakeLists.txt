@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.6)
+cmake_policy(SET CMP0077 NEW)
 
-project(hv VERSION 1.3.2)
+project(hv VERSION 1.3.3)
 
 option(BUILD_SHARED "build shared library" ON)
 option(BUILD_STATIC "build static library" ON)
@@ -29,7 +30,7 @@ option(WITH_MBEDTLS "with mbedtls library" OFF)
 
 option(WITH_KCP "compile event/kcp" OFF)
 
-if(WIN32)
+if(WIN32 OR MINGW)
     option(WITH_WEPOLL "compile event/wepoll -> use iocp" ON)
     option(ENABLE_WINDUMP "Windows MiniDumpWriteDump" OFF)
     option(BUILD_FOR_MT "build for /MT" OFF)
@@ -86,6 +87,14 @@ check_function("socketpair" "sys/socket.h")
 check_function("eventfd" "sys/eventfd.h")
 check_function("setproctitle" "unistd.h")
 
+if (NOT HAVE_CLOCK_GETTIME)
+    include(CheckLibraryExists)
+    check_library_exists(rt clock_gettime "" HAVE_CLOCK_GETTIME_IN_RT)
+    if (HAVE_CLOCK_GETTIME_IN_RT)
+        set(HAVE_CLOCK_GETTIME ${HAVE_CLOCK_GETTIME_IN_RT})
+    endif()
+endif()
+
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/hconfig.h.in ${CMAKE_CURRENT_SOURCE_DIR}/hconfig.h)
 
 # see Makefile.in
@@ -126,7 +135,7 @@ endif()
 if(WITH_CURL)
     add_definitions(-DWITH_CURL)
     set(LIBS ${LIBS} curl)
-    if(WIN32)
+    if(WIN32 OR MINGW)
         set(LIBS ${LIBS} wldap32 advapi32 crypt32)
     endif()
 endif()
@@ -156,7 +165,7 @@ if(WITH_MBEDTLS)
     set(LIBS ${LIBS} mbedtls mbedx509 mbedcrypto)
 endif()
 
-if(WIN32)
+if(WIN32 OR MINGW)
     add_definitions(-DWIN32_LEAN_AND_MEAN -D_CRT_SECURE_NO_WARNINGS -D_WIN32_WINNT=0x0600)
     set(LIBS ${LIBS} secur32 crypt32 winmm iphlpapi ws2_32)
     if(ENABLE_WINDUMP)
@@ -167,9 +176,10 @@ endif()
 
 if(ANDROID)
     set(LIBS ${LIBS} log)
-elseif(UNIX)
+elseif(UNIX AND NOT MINGW)
     set(LIBS ${LIBS} pthread m dl)
-    if(CMAKE_COMPILER_IS_GNUCC)
+    find_library(RT_LIBRARY rt)
+    if(RT_LIBRARY)
         set(LIBS ${LIBS} rt)
     endif()
 endif()
@@ -181,7 +191,7 @@ endif()
 # see Makefile
 set(ALL_SRCDIRS . base ssl event event/kcp util cpputil evpp protocol http http/client http/server mqtt)
 set(CORE_SRCDIRS . base ssl event)
-if(WIN32)
+if(WIN32 OR MINGW)
     if(WITH_WEPOLL)
         set(CORE_SRCDIRS ${CORE_SRCDIRS} event/wepoll)
     endif()
@@ -279,3 +289,24 @@ endif()
 if(BUILD_UNITTEST)
     add_subdirectory(unittest)
 endif()
+
+# CPack settings
+set(CPACK_PACKAGE_NAME "libhv")
+set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
+set(CPACK_PACKAGE_RELEASE 1)
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "A high-performance C/C++ network library")
+set(CPACK_PACKAGE_VENDOR "libhv")
+set(CPACK_PACKAGE_CONTACT "ithewei <ithewei@163.com>")
+set(CPACK_PACKAGE_FILE_NAME "${CPACK_PACKAGE_NAME}-${CPACK_PACKAGE_VERSION}-${CMAKE_HOST_SYSTEM_PROCESSOR}")
+set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE")
+set(CPACK_RESOURCE_FILE_README "${CMAKE_CURRENT_SOURCE_DIR}/README.md")
+
+# Specify the package generators
+set(CPACK_GENERATOR "TGZ;DEB;RPM")
+
+# Enable CPack debug output
+set(CPACK_PACKAGE_DEBUG True)
+
+# https://cmake.org/cmake/help/latest/variable/CPACK_ERROR_ON_ABSOLUTE_INSTALL_DESTINATION.html
+set(CPACK_ERROR_ON_ABSOLUTE_INSTALL_DESTINATION "ON")
+include(CPack)
