@@ -3,6 +3,7 @@
 #if WITH_RUDP
 
 #include "hevent.h"
+#include "hsocket.h"
 
 void rudp_entry_free(rudp_entry_t* entry) {
 #if WITH_KCP
@@ -38,7 +39,7 @@ bool rudp_insert(rudp_t* rudp, rudp_entry_t* entry) {
     while (*n) {
         parent = *n;
         e = rb_entry(*n, rudp_entry_t, rb_node);
-        cmp = memcmp(&entry->addr, &e->addr, sizeof(sockaddr_u));
+        cmp = sockaddr_compare(&entry->addr, &e->addr);
         if (cmp < 0) {
             n = &(*n)->rb_left;
         } else if (cmp > 0) {
@@ -63,7 +64,7 @@ rudp_entry_t* rudp_search(rudp_t* rudp, struct sockaddr* addr) {
     bool exists = false;
     while (n) {
         e = rb_entry(n, rudp_entry_t, rb_node);
-        cmp = memcmp(addr, &e->addr, sizeof(sockaddr_u));
+        cmp = sockaddr_compare((sockaddr_u*)addr, &e->addr);
         if (cmp < 0) {
             n = n->rb_left;
         } else if (cmp > 0) {
@@ -99,7 +100,7 @@ rudp_entry_t* rudp_get(rudp_t* rudp, struct sockaddr* addr) {
     while (*n) {
         parent = *n;
         e = rb_entry(*n, rudp_entry_t, rb_node);
-        cmp = memcmp(addr, &e->addr, sizeof(sockaddr_u));
+        cmp = sockaddr_compare((sockaddr_u*)addr, &e->addr);
         if (cmp < 0) {
             n = &(*n)->rb_left;
         } else if (cmp > 0) {
@@ -135,8 +136,8 @@ void rudp_del(rudp_t* rudp, struct sockaddr* addr) {
     hmutex_unlock(&rudp->mutex);
 }
 
-rudp_entry_t* hio_get_rudp(hio_t* io) {
-    rudp_entry_t* rudp = rudp_get(&io->rudp, io->peeraddr);
+rudp_entry_t* hio_get_rudp(hio_t* io, struct sockaddr* addr) {
+    rudp_entry_t* rudp = rudp_get(&io->rudp, addr ? addr : io->peeraddr);
     rudp->io = io;
     return rudp;
 }

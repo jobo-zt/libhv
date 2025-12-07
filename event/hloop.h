@@ -376,6 +376,7 @@ HV_EXPORT int hio_read_remain(hio_t* io);
 // NOTE: hio_write is thread-safe, locked by recursive_mutex, allow to be called by other threads.
 // hio_try_write => hio_add(io, HV_WRITE) => write => hwrite_cb
 HV_EXPORT int hio_write  (hio_t* io, const void* buf, size_t len);
+HV_EXPORT int hio_sendto (hio_t* io, const void* buf, size_t len, struct sockaddr* addr);
 
 // NOTE: hio_close is thread-safe, hio_close_async will be called actually in other thread.
 // hio_del(io, HV_RDWR) => close => hclose_cb
@@ -496,6 +497,7 @@ typedef enum {
     ENCODE_BY_VARINT        = 17,               // 1 MSB + 7 bits
     ENCODE_BY_LITTEL_ENDIAN = LITTLE_ENDIAN,    // 1234
     ENCODE_BY_BIG_ENDIAN    = BIG_ENDIAN,       // 4321
+    ENCODE_BY_ASN1          = 80,               // asn1 decode int
 } unpack_coding_e;
 
 typedef struct unpack_setting_s {
@@ -516,7 +518,7 @@ typedef struct unpack_setting_s {
          *
          * package_len = head_len + body_len + length_adjustment
          *
-         * if (length_field_coding == ENCODE_BY_VARINT) head_len = body_offset + varint_bytes - length_field_bytes;
+         * if (length_field_coding == ENCODE_BY_VARINT || length_field_coding == ENCODE_BY_ASN1) head_len = body_offset + varint_bytes - length_field_bytes;
          * else head_len = body_offset;
          *
          * length_field stores body length, exclude head length,

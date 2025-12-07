@@ -43,12 +43,7 @@ static void fill_io_type(hio_t* io) {
 }
 
 static void hio_socket_init(hio_t* io) {
-    if ((io->io_type & HIO_TYPE_SOCK_DGRAM) || (io->io_type & HIO_TYPE_SOCK_RAW)) {
-        // NOTE: sendto multiple peeraddr cannot use io->write_queue
-        blocking(io->fd);
-    } else {
-        nonblocking(io->fd);
-    }
+    nonblocking(io->fd);
     // fill io->localaddr io->peeraddr
     if (io->localaddr == NULL) {
         HV_ALLOC(io->localaddr, sizeof(sockaddr_u));
@@ -602,7 +597,7 @@ static void __write_timeout_cb(htimer_t* timer) {
         if (io->io_type & HIO_TYPE_SOCKET) {
             char localaddrstr[SOCKADDR_STRLEN] = {0};
             char peeraddrstr[SOCKADDR_STRLEN] = {0};
-            hlogw("write timeout [%s] <=> [%s]",
+            hlogi("write timeout [%s] <=> [%s]",
                     SOCKADDR_STR(io->localaddr, localaddrstr),
                     SOCKADDR_STR(io->peeraddr, peeraddrstr));
         }

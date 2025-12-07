@@ -8,38 +8,36 @@
 #include "httpdef.h"    // import http_content_type_str_by_suffix
 #include "http_page.h"  // import make_index_of_page
 
-#ifdef _MSC_VER
-#include <codecvt>
+#ifdef OS_WIN
+#include "hstring.h" // import hv::utf8_to_wchar
 #endif
 
 #define ETAG_FMT    "\"%zx-%zx\""
 
-FileCache::FileCache() {
+FileCache::FileCache(size_t capacity) : hv::LRUCache<std::string, file_cache_ptr>(capacity) {
     stat_interval = 10; // s
     expired_time  = 60; // s
 }
 
-static int hv_open(char const* filepath, int flags) {
-#ifdef _MSC_VER
-    std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>> conv;
-    auto wfilepath = conv.from_bytes(filepath);
-    int fd = _wopen(wfilepath.c_str(), flags);
-#else
-    int fd = open(filepath, flags);
-#endif
-    return fd;
-}
-
 file_cache_ptr FileCache::Open(const char* filepath, OpenParam* param) {
-    std::lock_guard<std::mutex> locker(mutex_);
     file_cache_ptr fc = Get(filepath);
+#ifdef OS_WIN
+    std::wstring wfilepath;
+#endif
     bool modified = false;
     if (fc) {
         time_t now = time(NULL);
         if (now - fc->stat_time > stat_interval) {
-            modified = fc->is_modified();
             fc->stat_time = now;
             fc->stat_cnt++;
+#ifdef OS_WIN
+            wfilepath = hv::utf8_to_wchar(filepath);
+            now = fc->st.st_mtime;
+            _wstat(wfilepath.c_str(), (struct _stat*)&fc->st);
+            modified = now != fc->st.st_mtime;
+#else
+            modified = fc->is_modified();
+#endif
         }
         if (param->need_read) {
             if (!modified && fc->is_complete()) {
@@ -48,31 +46,37 @@ file_cache_ptr FileCache::Open(const char* filepath, OpenParam* param) {
         }
     }
     if (fc == NULL || modified || param->need_read) {
+        struct stat st;
         int flags = O_RDONLY;
 #ifdef O_BINARY
         flags |= O_BINARY;
 #endif
-        int fd = hv_open(filepath, flags);
-        if (fd < 0) {
+        int fd = -1;
 #ifdef OS_WIN
-            // NOTE: open(dir) return -1 on windows
-            if (!hv_isdir(filepath)) {
-                param->error = ERR_OPEN_FILE;
-                return NULL;
-            }
-#else
+        if(wfilepath.empty()) wfilepath = hv::utf8_to_wchar(filepath);
+        if(_wstat(wfilepath.c_str(), (struct _stat*)&st) != 0) {
             param->error = ERR_OPEN_FILE;
             return NULL;
+        }
+        if(S_ISREG(st.st_mode)) {
+            fd = _wopen(wfilepath.c_str(), flags);
+        }else if (S_ISDIR(st.st_mode)) {
+            // NOTE: open(dir) return -1 on windows
+            fd = 0;
+        }
+#else
+        if(stat(filepath, &st) != 0) {
+            param->error = ERR_OPEN_FILE;
+            return NULL;
+        }
+        fd = open(filepath, flags);
 #endif
+        if (fd < 0) {
+            param->error = ERR_OPEN_FILE;
+            return NULL;
         }
         defer(if (fd > 0) { close(fd); })
         if (fc == NULL) {
-            struct stat st;
-            if (fd > 0) {
-                fstat(fd, &st);
-            } else {
-                stat(filepath, &st);
-            }
             if (S_ISREG(st.st_mode) ||
                 (S_ISDIR(st.st_mode) &&
                  filepath[strlen(filepath)-1] == '/')) {
@@ -82,7 +86,7 @@ file_cache_ptr FileCache::Open(const char* filepath, OpenParam* param) {
                 time(&fc->open_time);
                 fc->stat_time = fc->open_time;
                 fc->stat_cnt = 1;
-                cached_files[filepath] = fc;
+                put(filepath, fc);
             }
             else {
                 param->error = ERR_MISMATCH;
@@ -131,47 +135,25 @@ file_cache_ptr FileCache::Open(const char* filepath, OpenParam* param) {
     return fc;
 }
 
-bool FileCache::Close(const char* filepath) {
-    std::lock_guard<std::mutex> locker(mutex_);
-    auto iter = cached_files.find(filepath);
-    if (iter != cached_files.end()) {
-        iter = cached_files.erase(iter);
-        return true;
-    }
-    return false;
+bool FileCache::Exists(const char* filepath) const {
+    return contains(filepath);
 }
 
-bool FileCache::Close(const file_cache_ptr& fc) {
-    std::lock_guard<std::mutex> locker(mutex_);
-    auto iter = cached_files.begin();
-    while (iter != cached_files.end()) {
-        if (iter->second == fc) {
-            iter = cached_files.erase(iter);
-            return true;
-        } else {
-            ++iter;
-        }
-    }
-    return false;
+bool FileCache::Close(const char* filepath) {
+    return remove(filepath);
 }
 
 file_cache_ptr FileCache::Get(const char* filepath) {
-    auto iter = cached_files.find(filepath);
-    if (iter != cached_files.end()) {
-        return iter->second;
+    file_cache_ptr fc;
+    if (get(filepath, fc)) {
+        return fc;
     }
     return NULL;
 }
 
 void FileCache::RemoveExpiredFileCache() {
-    std::lock_guard<std::mutex> locker(mutex_);
     time_t now = time(NULL);
-    auto iter = cached_files.begin();
-    while (iter != cached_files.end()) {
-        if (now - iter->second->stat_time > expired_time) {
-            iter = cached_files.erase(iter);
-        } else {
-            ++iter;
-        }
-    }
+    remove_if([this, now](const std::string& filepath, const file_cache_ptr& fc) {
+        return (now - fc->stat_time > expired_time);
+    });
 }

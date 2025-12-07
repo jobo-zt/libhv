@@ -80,7 +80,7 @@ static void ssl_server_handshake(hio_t* io) {
         }
     }
     else {
-        hloge("ssl handshake failed: %d", ret);
+        hloge("ssl server handshake failed: %d", ret);
         io->error = ERR_SSL_HANDSHAKE;
         hio_close(io);
     }
@@ -101,7 +101,7 @@ static void ssl_client_handshake(hio_t* io) {
         }
     }
     else {
-        hloge("ssl handshake failed: %d", ret);
+        hloge("ssl client handshake failed: %d", ret);
         io->error = ERR_SSL_HANDSHAKE;
         hio_close(io);
     }
@@ -269,7 +269,7 @@ static int __nio_read(hio_t* io, void* buf, int len) {
     return nread;
 }
 
-static int __nio_write(hio_t* io, const void* buf, int len) {
+static int __nio_write(hio_t* io, const void* buf, int len, struct sockaddr* addr) {
     int nwrite = 0;
     switch (io->io_type) {
     case HIO_TYPE_SSL:
@@ -288,7 +288,8 @@ static int __nio_write(hio_t* io, const void* buf, int len) {
     case HIO_TYPE_KCP:
     case HIO_TYPE_IP:
     {
-        nwrite = sendto(io->fd, buf, len, 0, io->peeraddr, SOCKADDR_LEN(io->peeraddr));
+        if (addr == NULL) addr = io->peeraddr;
+        nwrite = sendto(io->fd, buf, len, 0, addr, SOCKADDR_LEN(addr));
         if (((sockaddr_u*)io->localaddr)->sin.sin_port == 0) {
             socklen_t addrlen = sizeof(sockaddr_u);
             getsockname(io->fd, io->localaddr, &addrlen);
@@ -371,7 +372,11 @@ write:
     char* base = pbuf->base;
     char* buf = base + pbuf->offset;
     int len = pbuf->len - pbuf->offset;
-    nwrite = __nio_write(io, buf, len);
+    struct sockaddr* addr = NULL;
+    if (io->io_type & (HIO_TYPE_SOCK_DGRAM | HIO_TYPE_SOCK_RAW)) {
+        addr = (struct sockaddr*)base;
+    }
+    nwrite = __nio_write(io, buf, len, addr);
     // printd("write retval=%d\n", nwrite);
     if (nwrite < 0) {
         err = socket_errno();
@@ -485,7 +490,7 @@ int hio_read (hio_t* io) {
     return 0;
 }
 
-int hio_write (hio_t* io, const void* buf, size_t len) {
+static int hio_write4 (hio_t* io, const void* buf, size_t len, struct sockaddr* addr) {
     if (io->closed) {
         hloge("hio_write called but fd[%d] already closed!", io->fd);
         return -1;
@@ -494,14 +499,14 @@ int hio_write (hio_t* io, const void* buf, size_t len) {
     hrecursive_mutex_lock(&io->write_mutex);
 #if WITH_KCP
     if (io->io_type == HIO_TYPE_KCP) {
-        nwrite = hio_write_kcp(io, buf, len);
+        nwrite = hio_write_kcp(io, buf, len, addr);
         // if (nwrite < 0) goto write_error;
         goto write_done;
     }
 #endif
     if (write_queue_empty(&io->write_queue)) {
 try_write:
-        nwrite = __nio_write(io, buf, len);
+        nwrite = __nio_write(io, buf, len, addr);
         // printd("write retval=%d\n", nwrite);
         if (nwrite < 0) {
             err = socket_errno();
@@ -525,26 +530,34 @@ enqueue:
         hio_add(io, hio_handle_events, HV_WRITE);
     }
     if (nwrite < len) {
-        if (io->write_bufsize + len - nwrite > io->max_write_bufsize) {
+        size_t unwritten_len = len - nwrite;
+        if (io->write_bufsize + unwritten_len > io->max_write_bufsize) {
             hloge("write bufsize > %u, close it!", io->max_write_bufsize);
             io->error = ERR_OVER_LIMIT;
             goto write_error;
         }
+        size_t addrlen = 0;
+        if ((io->io_type & (HIO_TYPE_SOCK_DGRAM | HIO_TYPE_SOCK_RAW)) && addr) {
+            addrlen = SOCKADDR_LEN(addr);
+        }
         offset_buf_t remain;
-        remain.len = len - nwrite;
-        remain.offset = 0;
+        remain.offset = addrlen;
+        remain.len = addrlen + unwritten_len;
         // NOTE: free in nio_write
         HV_ALLOC(remain.base, remain.len);
-        memcpy(remain.base, ((char*)buf) + nwrite, remain.len);
+        if (addr && addrlen > 0) {
+            memcpy(remain.base, addr, addrlen);
+        }
+        memcpy(remain.base + remain.offset, ((char*)buf) + nwrite, unwritten_len);
         if (io->write_queue.maxsize == 0) {
             write_queue_init(&io->write_queue, 4);
         }
         write_queue_push_back(&io->write_queue, &remain);
-        io->write_bufsize += remain.len;
+        io->write_bufsize += unwritten_len;
         if (io->write_bufsize > WRITE_BUFSIZE_HIGH_WATER) {
             hlogw("write len=%u enqueue %u, bufsize=%u over high water %u",
                 (unsigned int)len,
-                (unsigned int)(remain.len - remain.offset),
+                (unsigned int)unwritten_len,
                 (unsigned int)io->write_bufsize,
                 (unsigned int)WRITE_BUFSIZE_HIGH_WATER);
         }
@@ -567,6 +580,14 @@ disconnect:
         hio_close_async(io);
     }
     return nwrite < 0 ? nwrite : -1;
+}
+
+int hio_write (hio_t* io, const void* buf, size_t len) {
+    return hio_write4(io, buf, len, io->peeraddr);
+}
+
+int hio_sendto (hio_t* io, const void* buf, size_t len, struct sockaddr* addr) {
+    return hio_write4(io, buf, len, addr ? addr : io->peeraddr);
 }
 
 int hio_close (hio_t* io) {

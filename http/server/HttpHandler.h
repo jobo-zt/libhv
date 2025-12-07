@@ -143,7 +143,7 @@ public:
 
 private:
     const HttpContextPtr& context();
-    int   handleRequestHeaders();
+    void  handleRequestHeaders();
     // Expect: 100-continue
     void  handleExpect100();
     void  addResponseHeaders();
@@ -156,7 +156,7 @@ private:
     // default handlers
     int defaultRequestHandler();
     int defaultStaticHandler();
-    int defaultLargeFileHandler();
+    int defaultLargeFileHandler(const std::string &filepath);
     int defaultErrorHandler();
     int customHttpHandler(const http_handler& handler);
     int invokeHttpHandler(const http_handler* handler);
